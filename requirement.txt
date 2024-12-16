@@ -1,0 +1,15 @@
+pandas 
+matplotlib 
+seaborn 
+wordcloud 
+nltk 
+textblob 
+emoji 
+numpy 
+fpdf 
+reportlab 
+openpyxl
+plotly
+nbformat
+
+notebook
