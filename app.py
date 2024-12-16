@@ -2,72 +2,88 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from wordcloud import WordCloud
-from collections import Counter
 import emoji
-import re
 
-# Define preprocess_chat_data function here (as shown above)
+# Streamlit app configuration
+st.set_page_config(page_title="WhatsApp Chat Analyzer", page_icon="🔐", layout="wide")
+
+# Function to preprocess chat data
+@st.cache_data
 def preprocess_chat_data(chat_data):
-    """
-    Preprocess raw WhatsApp chat data into a structured DataFrame.
-    """
-    # Regex to parse chat lines
-    chat_pattern = r'(\d{2}/\d{2}/\d{2,4}), (\d{1,2}:\d{2}\s[apm]{2}) - ([^:]+?): (.+)'
-    
-    messages = []
-    for line in chat_data.split('\n'):
-        match = re.match(chat_pattern, line)
-        if match:
-            date, time, user, message = match.groups()
-            messages.append({'Date': date, 'Time': time, 'User': user.strip(), 'Message': message.strip()})
-    
-    # Convert to DataFrame
-    df = pd.DataFrame(messages)
-    df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%y')
+    data = []
+    for line in chat_data.splitlines():
+        if ', ' in line and ' - ' in line:  # Assuming this pattern for WhatsApp chat format
+            date, rest = line.split(', ', 1)
+            if ' - ' in rest:
+                time, message = rest.split(' - ', 1)
+                if ': ' in message:
+                    user, text = message.split(': ', 1)
+                    data.append([date, time, user.strip(), text.strip()])
+    df = pd.DataFrame(data, columns=['Date', 'Time', 'User', 'Message'])
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     return df
 
-st.title("WhatsApp Chat Analyzer")
+# Function to generate word cloud
+@st.cache_data
+def generate_wordcloud(text):
+    return WordCloud(width=800, height=400, background_color="white").generate(text)
 
-# Upload chat file
-uploaded_file = st.file_uploader("Upload your chat file", type="txt")
+# Function to get messages per day
+@st.cache_data
+def get_messages_per_day(df):
+    messages_per_day = df.groupby('Date').size().reset_index(name='Message Count')
+    return messages_per_day
+
+# File upload section
+st.sidebar.header("Upload Chat Data")
+uploaded_file = st.sidebar.file_uploader("Upload your WhatsApp chat file (txt format)", type="txt")
+
 if uploaded_file:
-    # Parse chat data
-    chat_data = uploaded_file.read().decode('utf-8')
+    chat_data = uploaded_file.read().decode("utf-8")
     df = preprocess_chat_data(chat_data)
 
-    st.sidebar.title("Options")
-    option = st.sidebar.selectbox("Select an Analysis Option", ["Timeline", "Word Cloud", "Word Frequency", "Emoji Frequency"])
+    if not df.empty:
+        st.sidebar.success("File uploaded successfully!")
 
-    if option == "Timeline":
-        messages_per_day = df.groupby('Date').size().reset_index(name='Message Count')
-        fig = px.line(messages_per_day, x='Date', y='Message Count', title='Chat Timeline',
-                      labels={'Date': 'Date', 'Message Count': 'Number of Messages'})
-        st.plotly_chart(fig)
+        # Sidebar for user selection
+        unique_users = sorted(df['User'].dropna().unique())
+        user_option = st.sidebar.radio("Select analysis option:", ["All Users", "Individual Users"])
 
-    elif option == "Word Cloud":
-        user = st.sidebar.selectbox("Select User", df['User'].unique())
-        user_messages = " ".join(df[df['User'] == user]['Message'])
-        wordcloud = WordCloud(width=800, height=400, background_color='white').generate(user_messages)
-        st.image(wordcloud.to_array(), caption=f"Word Cloud for {user}")
+        # Chat timeline
+        messages_per_day = get_messages_per_day(df)
+        st.header("Chat Timeline")
+        fig = px.line(messages_per_day, x='Date', y='Message Count', title='Chat Timeline', labels={'Date': 'Date', 'Message Count': 'Number of Messages'})
+        st.plotly_chart(fig, use_container_width=True)
 
-    elif option == "Word Frequency":
-        user = st.sidebar.selectbox("Select User", df['User'].unique())
-        user_messages = " ".join(df[df['User'] == user]['Message'])
-        all_words = user_messages.split()
-        word_counts = Counter(all_words).most_common(10)
-        words, counts = zip(*word_counts)
+        # Word Cloud section
+        st.header("Word Cloud Analysis")
+        if user_option == "All Users":
+            all_text = " ".join(df['Message'].dropna())
+            wordcloud = generate_wordcloud(all_text)
+            st.image(wordcloud.to_image(), caption="Word Cloud for All Users", use_container_width=True)
+        elif user_option == "Individual Users":
+            selected_user = st.sidebar.selectbox("Choose a user:", unique_users)
+            user_text = " ".join(df[df['User'] == selected_user]['Message'].dropna())
+            wordcloud = generate_wordcloud(user_text)
+            st.image(wordcloud.to_image(), caption=f"Word Cloud for {selected_user}", use_container_width=True)
 
-        st.bar_chart(pd.DataFrame({'Words': words, 'Counts': counts}))
+        # Download button for processed data
+        st.sidebar.header("Download Processed Data")
+        st.sidebar.download_button(
+            label="Download CSV", 
+            data=df.to_csv(index=False), 
+            file_name="processed_chat_data.csv",
+            mime="text/csv"
+        )
+    else:
+        st.error("The uploaded file could not be processed. Please check the format.")
+else:
+    st.info("Please upload a chat file to begin analysis.")
 
-    elif option == "Emoji Frequency":
-        user = st.sidebar.selectbox("Select User", df['User'].unique())
-        user_messages = " ".join(df[df['User'] == user]['Message'])
-        all_emojis = [char for message in user_messages for char in message if char in emoji.EMOJI_DATA]
-        emoji_counts = Counter(all_emojis).most_common(10)
-        emojis, counts = zip(*emoji_counts)
-
-        st.write("Top Emojis")
-        st.write(pd.DataFrame({'Emoji': emojis, 'Count': counts}))
-
-        fig = px.pie(names=emojis, values=counts, title='Emoji Frequency')
-        st.plotly_chart(fig)
+# Custom footer
+st.markdown("""
+    <hr>
+    <footer style='text-align: center;'>
+        © 2024 Chat Analyzer | Developed by Bibek Chand Sah
+    </footer>
+""", unsafe_allow_html=True)
