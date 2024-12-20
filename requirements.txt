@@ -5,6 +5,6 @@ datetime
 collections
 plotly
 wordcloud
-matplotlib
 emoji
 textblob
+matplotlib
