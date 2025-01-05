@@ -82,16 +82,19 @@ def parse_chat(file_content):
     pattern2_mm_dd_yy_am_pm = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}\s?[APap][Mm]) - ([^:]+): (.+)'
     # mm/dd/yy, hh:mm am/pm | AM/PM - message
     system2_message_mm_dd_yy_am_pm = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}\s?[APap][Mm]) - (.+)'
+    # dd/mm/yy hh.mm - user: message
+    pattern_dd_mm_yy_24_hour_dot = r'(\d{1,2}/\d{1,2}/\d{2}) (\d{1,2}\.\d{2}) - ([^:]+): (.+)'
 
     for line in lines:
         message = {}
-        line = line.replace('\u202f', ' ').replace('\xa0', ' ')  # Normalize spaces
+        line = line.replace('\u202f', ' ').replace('\xa0', ' ').replace('‎', ' ')  # Normalize spaces
         
         # Try matching both formats for normal messages
         iphoneMessage = re.match(iphone_message, line)
         match_pattern1_24_hour = re.match(pattern1_dd_mm_yy_24_hour, line)
         match_pattern1 = re.match(pattern1_dd_mm_yy_am_pm, line)
         match_pattern2 = re.match(pattern2_mm_dd_yy_am_pm, line)
+        match_pattern_dot = re.match(pattern_dd_mm_yy_24_hour_dot, line)
         # Try matching both formats for system messages
         match_system1_message_24_hour = re.match(system1_message_dd_mm_yy_24_hour, line)
         match_system1_message = re.match(system1_message_dd_mm_yy_am_pm, line)
@@ -165,6 +168,11 @@ def parse_chat(file_content):
                 message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
             message['sender'] = "System"
             message['message'] = content
+        elif match_pattern_dot:
+            date, time, sender, content = match_pattern_dot.groups()
+            message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %H.%M')
+            message['sender'] = sender
+            message['message'] = content
 
         if message:
             messages.append(message)
@@ -189,16 +197,43 @@ def parse_chat(file_content):
 #     }
 
 
+# def get_chat_stats(df):
+#     stats = {
+#         "first_message_date": df['date'].min(),
+#         "last_message_date": df['date'].max(),
+#         "total_days_chatted": (df['date'].max() - df['date'].min()).days + 1,
+#         "total_messages": len(df),
+#         "total_words": df['message'].apply(lambda x: len(x.split())).sum(),
+#         "first_message": df.loc[df['date'].idxmin(), 'message'],  # First message content
+#         "last_message": df.loc[df['date'].idxmax(), 'message'],   # Last message content
+#         "longest_message": df.loc[df['message'].apply(len).idxmax(), 'message'],  # Longest message content
+#     }
+#     return stats
+
+
 def get_chat_stats(df):
+    # Filter out specific messages
+    filtered_df = df[~df['message'].isin([
+        "Messages and calls are end-to-end encrypted. No one outside of this chat, not even WhatsApp, can read or listen to them. Tap to learn more.",
+        "Messages and calls are end-to-end encrypted. No one outside of this chat, not even WhatsApp, can read or listen to them.",
+        "Messages and calls are end-to-end encrypted. No one outside of this chat, not even WhatsApp, can read or listen to them.",
+        "null",
+        "Your security code with Bikash Sah KIIT changed. Tap to learn more.",
+        "Disappearing messages were turned off. Tap to change.",
+        "<Media omitted>",
+        "<Media tidak disertakan>",
+        "You deleted this message"
+    ])]
+
     stats = {
         "first_message_date": df['date'].min(),
         "last_message_date": df['date'].max(),
         "total_days_chatted": (df['date'].max() - df['date'].min()).days + 1,
         "total_messages": len(df),
         "total_words": df['message'].apply(lambda x: len(x.split())).sum(),
-        "first_message": df.loc[df['date'].idxmin(), 'message'],  # First message content
-        "last_message": df.loc[df['date'].idxmax(), 'message'],   # Last message content
-        "longest_message": df.loc[df['message'].apply(len).idxmax(), 'message'],  # Longest message content
+        "first_message": filtered_df.loc[filtered_df['date'].idxmin(), 'message'],  # First message content
+        "last_message": filtered_df.loc[filtered_df['date'].idxmax(), 'message'],   # Last message content
+        "longest_message": filtered_df.loc[filtered_df['message'].apply(len).idxmax(), 'message'],  # Longest message content
     }
     return stats
 
@@ -208,11 +243,24 @@ def get_chat_stats(df):
 # Function to calculate advanced metrics
 @st.cache_data
 def get_advanced_metrics(df):
-    media_placeholder = "<Media omitted>"
-    deleted_message_placeholder = "This message was deleted"
+    # media_placeholder = "<Media omitted>"
+    # deleted_message_placeholder = "This message was deleted"
+    
+    media_placeholder = [
+        "<Media omitted>", 
+        "<Media tidak disertakan>",
+        "‎document omitted"
+    ]
+    deleted_message_placeholder = [
+        "This message was deleted", 
+        "You deleted this message",
+        "Pesan ini dihapus"
+    ]
 
     # Media count
-    media_count = df['message'].str.contains(media_placeholder, regex=False).sum()
+    # media_count = df['message'].str.contains(media_placeholder, regex=False).sum()
+    media_count = df['message'].apply(lambda x: any(placeholder in x for placeholder in media_placeholder)).sum()
+
 
     # Emoji analysis
     # Improved Emoji analysis using Unicode ranges for emojis
@@ -237,7 +285,9 @@ def get_advanced_metrics(df):
     link_count = df['message'].str.contains(url_pattern, regex=True).sum()
 
     # Deleted messages count
-    deleted_messages_count = df['message'].str.contains(deleted_message_placeholder, regex=False).sum()
+    # deleted_messages_count = df['message'].str.contains(deleted_message_placeholder, regex=False).sum()
+    deleted_messages_count = df['message'].apply(lambda x: any(placeholder in x for placeholder in deleted_message_placeholder)).sum()
+
 
     return {
         "media_count": media_count,
@@ -270,7 +320,22 @@ def plot_message_count_donut(df):
 @st.cache_data
 def generate_wordcloud(df):
     # Define a list of words/phrases to exclude
-    exclude_words = ['Media omitted', 'null', 'Missed voice call', 'Missed video call', 'https']
+    exclude_words = [
+        'Media omitted', 
+        'null', 
+        'Missed voice call', 
+        'Missed video call', 
+        'https', 
+        'security code', 
+        'Media tidak', 
+        'tidak disertakan', 
+        'disertakan Media',
+        'answer',
+        'Voice',
+        'Voice call',
+        'call',
+        'sec',
+    ]
     
     # Combine all messages into a single string
     text = " ".join(df['message'].dropna())
@@ -483,6 +548,85 @@ def chat_timeline(df):
 
 
 # Function to perform sentiment analysis
+# @st.cache_data
+# def sentiment_analysis(df):
+#     # Create a new column 'sentiment' using TextBlob
+#     def get_sentiment(message):
+#         analysis = TextBlob(message)
+#         if analysis.sentiment.polarity > 0:
+#             return 'Positive'
+#         elif analysis.sentiment.polarity < 0:
+#             return 'Negative'
+#         else:
+#             return 'Neutral'
+
+#     # Apply sentiment analysis to the 'message' column
+#     df['sentiment'] = df['message'].apply(lambda msg: get_sentiment(msg) if pd.notnull(msg) else 'Neutral')
+
+#     # Count sentiment types
+#     sentiment_counts = df['sentiment'].value_counts().reset_index()
+#     sentiment_counts.columns = ['Sentiment', 'Count']
+
+#     # Plot the sentiment distribution
+#     fig = px.pie(sentiment_counts, names='Sentiment', values='Count',
+#                  title='Sentiment Analysis',
+#                  color='Sentiment',
+#                  color_discrete_map={'Positive': '#00cc96', 'Neutral': 'royalblue', 'Negative': 'red'})
+    
+#     # Display the chart in Streamlit
+#     st.plotly_chart(fig, use_container_width=True)
+
+#     # Show sentiment counts in table format
+#     # st.write("### Sentiment Breakdown")
+#     # st.table(sentiment_counts)
+
+
+# # Function to show top positive and negative messages
+# @st.cache_data
+# def top_positive_negative_messages(df, n=5):
+#     # Add a polarity column using TextBlob
+#     def get_polarity(message):
+#         return TextBlob(message).sentiment.polarity if pd.notnull(message) else 0
+
+#     # Create the polarity column
+#     df['polarity'] = df['message'].apply(get_polarity)
+
+#     # Round the polarity column to 2 decimal places
+#     df['polarity'] = df['polarity'].round(2)
+
+#     # Extract top positive and negative messages
+#     top_positive = df.nlargest(n, 'polarity')[['date', 'sender', 'message', 'polarity']]
+#     top_negative = df.nsmallest(n, 'polarity')[['date', 'sender', 'message', 'polarity']]
+
+#     # Format polarity for display without affecting the numeric column
+#     top_positive['polarity'] = top_positive['polarity'].apply(lambda x: f"{x:.2f}")
+#     top_negative['polarity'] = top_negative['polarity'].apply(lambda x: f"{x:.2f}")
+
+#     # Display in Streamlit
+#     st.write("### Top Positive Messages")
+#     st.table(top_positive)
+
+#     st.write("### Top Negative Messages")
+#     st.table(top_negative)
+
+
+
+# Messages to exclude
+exclude_messages = [
+    "Disappearing messages were turned off. Tap to change.",
+    "Voice call, Answered on other device",
+]
+
+# Starting phrases to exclude
+exclude_startswith = (
+    "Your security code with",
+    "Voice call",
+)
+
+def should_exclude(message):
+    return any(message.startswith(prefix) for prefix in exclude_startswith) or message in exclude_messages
+
+# Function to perform sentiment analysis
 @st.cache_data
 def sentiment_analysis(df):
     # Create a new column 'sentiment' using TextBlob
@@ -495,8 +639,8 @@ def sentiment_analysis(df):
         else:
             return 'Neutral'
 
-    # Apply sentiment analysis to the 'message' column
-    df['sentiment'] = df['message'].apply(lambda msg: get_sentiment(msg) if pd.notnull(msg) else 'Neutral')
+    # Apply sentiment analysis to the 'message' column, excluding specific messages
+    df['sentiment'] = df['message'].apply(lambda msg: get_sentiment(msg) if pd.notnull(msg) and not should_exclude(msg) else 'Neutral')
 
     # Count sentiment types
     sentiment_counts = df['sentiment'].value_counts().reset_index()
@@ -521,7 +665,7 @@ def sentiment_analysis(df):
 def top_positive_negative_messages(df, n=5):
     # Add a polarity column using TextBlob
     def get_polarity(message):
-        return TextBlob(message).sentiment.polarity if pd.notnull(message) else 0
+        return TextBlob(message).sentiment.polarity if pd.notnull(message) and not should_exclude(message) else 0
 
     # Create the polarity column
     df['polarity'] = df['message'].apply(get_polarity)
@@ -543,6 +687,7 @@ def top_positive_negative_messages(df, n=5):
 
     st.write("### Top Negative Messages")
     st.table(top_negative)
+
 
 
 
