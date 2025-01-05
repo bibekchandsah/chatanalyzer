@@ -14,43 +14,155 @@ from textblob import TextBlob
 
 # Function to parse WhatsApp chat with automatic time format detection
 @st.cache_data
+# def parse_chat(file_content):
+#     lines = file_content.decode('utf-8').split("\n")
+#     messages = []
+
+#     # Regex patterns for both formats
+#     pattern_24_hour = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}) - ([^:]+): (.+)'
+#     pattern_am_pm = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}\s?[APap][Mm]) - ([^:]+): (.+)'
+#     system_message_24_hour = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}) - (.+)'
+#     system_message_am_pm = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}\s?[APap][Mm]) - (.+)'
+
+#     for line in lines:
+#         message = {}
+#         # Try matching both formats for normal messages
+#         match_24_hour = re.match(pattern_24_hour, line)
+#         match_am_pm = re.match(pattern_am_pm, line)
+#         # Try matching both formats for system messages
+#         system_match_24_hour = re.match(system_message_24_hour, line)
+#         system_match_am_pm = re.match(system_message_am_pm, line)
+
+#         if match_24_hour:  # 24-hour normal messages
+#             date, time, sender, content = match_24_hour.groups()
+#             message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %H:%M')
+#             message['sender'] = sender
+#             message['message'] = content
+#         elif match_am_pm:  # AM/PM normal messages
+#             date, time, sender, content = match_am_pm.groups()
+#             message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
+#             message['sender'] = sender
+#             message['message'] = content
+#         elif system_match_24_hour:  # 24-hour system messages
+#             date, time, content = system_match_24_hour.groups()
+#             message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %H:%M')
+#             message['sender'] = "System"
+#             message['message'] = content
+#         elif system_match_am_pm:  # AM/PM system messages
+#             date, time, content = system_match_am_pm.groups()
+#             message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
+#             message['sender'] = "System"
+#             message['message'] = content
+
+#         if message:
+#             messages.append(message)
+
+#     return pd.DataFrame(messages)
+
+
+
+
 def parse_chat(file_content):
     lines = file_content.decode('utf-8').split("\n")
     messages = []
 
-    # Regex patterns for both formats
-    pattern_24_hour = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}) - ([^:]+): (.+)'
-    pattern_am_pm = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}\s?[APap][Mm]) - ([^:]+): (.+)'
-    system_message_24_hour = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}) - (.+)'
-    system_message_am_pm = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}\s?[APap][Mm]) - (.+)'
+    # Regex patterns for various formats my data not working with this
+    
+    # [dd/mm/yy, hh:mm:ss AM/PM] user: message
+    iphone_message = r'\[(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}:\d{2}\s?[APap][Mm])\] ([^:]+): (.+)'
+    # dd/mm/yy, hh:mm am/pm | AM/PM - user: message
+    pattern1_dd_mm_yy_am_pm = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}\s?[APap][Mm]) - ([^:]+): (.+)'
+    # dd/mm/yy, hh:mm am/pm | AM/PM - message
+    system1_message_dd_mm_yy_am_pm = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}\s?[APap][Mm]) - (.+)'
+    # dd/mm/yy, hh:mm - user: message
+    pattern1_dd_mm_yy_24_hour = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}) - ([^:]+): (.+)'
+    # dd/mm/yy, hh:mm - message
+    system1_message_dd_mm_yy_24_hour = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}) - (.+)'
+    # mm/dd/yy, hh:mm am/pm | AM/PM - user: message
+    pattern2_mm_dd_yy_am_pm = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}\s?[APap][Mm]) - ([^:]+): (.+)'
+    # mm/dd/yy, hh:mm am/pm | AM/PM - message
+    system2_message_mm_dd_yy_am_pm = r'(\d{1,2}/\d{1,2}/\d{2}), (\d{1,2}:\d{2}\s?[APap][Mm]) - (.+)'
 
     for line in lines:
         message = {}
+        line = line.replace('\u202f', ' ').replace('\xa0', ' ')  # Normalize spaces
+        
         # Try matching both formats for normal messages
-        match_24_hour = re.match(pattern_24_hour, line)
-        match_am_pm = re.match(pattern_am_pm, line)
+        iphoneMessage = re.match(iphone_message, line)
+        match_pattern1_24_hour = re.match(pattern1_dd_mm_yy_24_hour, line)
+        match_pattern1 = re.match(pattern1_dd_mm_yy_am_pm, line)
+        match_pattern2 = re.match(pattern2_mm_dd_yy_am_pm, line)
         # Try matching both formats for system messages
-        system_match_24_hour = re.match(system_message_24_hour, line)
-        system_match_am_pm = re.match(system_message_am_pm, line)
-
-        if match_24_hour:  # 24-hour normal messages
-            date, time, sender, content = match_24_hour.groups()
+        match_system1_message_24_hour = re.match(system1_message_dd_mm_yy_24_hour, line)
+        match_system1_message = re.match(system1_message_dd_mm_yy_am_pm, line)
+        match_system2_message = re.match(system2_message_mm_dd_yy_am_pm, line)
+    
+        
+        if iphoneMessage:
+            date, time, sender, content = iphoneMessage.groups()
+            message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M:%S %p')
+            message['sender'] = sender
+            message['message'] = content
+        elif match_pattern1_24_hour:
+            date, time, sender, content = match_pattern1_24_hour.groups()
             message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %H:%M')
             message['sender'] = sender
             message['message'] = content
-        elif match_am_pm:  # AM/PM normal messages
-            date, time, sender, content = match_am_pm.groups()
-            message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
+        # elif match_pattern1:
+        #     date, time, sender, content = match_pattern1.groups()
+        #     message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
+        #     message['sender'] = sender
+        #     message['message'] = content
+        # elif match_pattern2:
+        #     date, time, sender, content = match_pattern2.groups()
+        #     message['date'] = datetime.strptime(date + " " + time, '%m/%d/%y %I:%M %p')
+        #     message['sender'] = sender
+        #     message['message'] = content
+        elif match_pattern1:
+            date, time, sender, content = match_pattern1.groups()
+            try:
+                message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
+            except ValueError:
+                message['date'] = datetime.strptime(date + " " + time, '%m/%d/%y %I:%M %p')
             message['sender'] = sender
             message['message'] = content
-        elif system_match_24_hour:  # 24-hour system messages
-            date, time, content = system_match_24_hour.groups()
+        elif match_pattern2:
+            date, time, sender, content = match_pattern2.groups()
+            try:
+                message['date'] = datetime.strptime(date + " " + time, '%m/%d/%y %I:%M %p')
+            except ValueError:
+                message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
+            message['sender'] = sender
+            message['message'] = content
+        elif match_system1_message_24_hour:  # 24-hour system messages
+            date, time, content = match_system1_message_24_hour.groups()
             message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %H:%M')
             message['sender'] = "System"
             message['message'] = content
-        elif system_match_am_pm:  # AM/PM system messages
-            date, time, content = system_match_am_pm.groups()
-            message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
+        # elif match_system1_message:
+        #     date, time, content = match_system1_message.groups()
+        #     message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
+        #     message['sender'] = "System"
+        #     message['message'] = content
+        # elif match_system2_message:
+        #     date, time, content = match_system2_message.groups()
+        #     message['date'] = datetime.strptime(date + " " + time, '%m/%d/%y %I:%M %p')
+        #     message['sender'] = "System"
+        #     message['message'] = content
+        elif match_system1_message:
+            date, time, content = match_system1_message.groups()
+            try:
+                message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
+            except ValueError:
+                message['date'] = datetime.strptime(date + " " + time, '%m/%d/%y %I:%M %p')
+            message['sender'] = "System"
+            message['message'] = content
+        elif match_system2_message:
+            date, time, content = match_system2_message.groups()
+            try:
+                message['date'] = datetime.strptime(date + " " + time, '%m/%d/%y %I:%M %p')
+            except ValueError:
+                message['date'] = datetime.strptime(date + " " + time, '%d/%m/%y %I:%M %p')
             message['sender'] = "System"
             message['message'] = content
 
